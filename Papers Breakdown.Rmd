@@ -1,0 +1,130 @@
+---
+title: "Papers Review"
+author: "Peter McClintock"
+date: "26/02/2021"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    highlight: tango
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# A Simple Framework for Analysing Bull and Bear Markets
+By Pagan and Sossounov
+
+accessible at https://doi.org/10.1002/jae.664
+
+### Summary
+Bull and bear markets are a common way of describing cycles in equity prices. The paper uses an algorithim based on their definition of bull and bear markets to sort time series of equity prices into said periods. The rules they use to differentiate is then studied analytically and they summise that the characteristics depend upon the DGP for capital gains. They then use simulation to examine a number of DGPs that are known to fit stock data quite well - random walks, GARCH models, and models with duratino dependence. They find that random walk models provide as good an explanation of bull and bear markets as the more complex statistical models. 
+
+### Introduction
+Equity returns exhibit a range of features, such as equity premium (*the excess return required for equities*), volatility clustering (*the phenomenon that large changes are likely to be followed by large changes, and the same for small changes*) and fat-tailed densities (*the extremes are more likely in fat-tailed distributions*)
+
+The paper sets out to determine the turning points of the eauity prices life cycle to then segment time into bull and bear phases. Similar work to Bry and Boschan (1971) in the analysis of the business cycle. They analyse mothly data for the equivalent of the S&P500 for the USA over the years 1835/1-1997/5.
+
+### Dating Algorithims
+Defenition of bull and bear (B&B) markets taken from Chauvet and Potter (2000, p.90, fn. 6): 'In stock market terminology, bull (bear) marekt corresponds to periods of generally increasing (decreasing) marekt prices.'
+
+However recent usage in the press insists on the rise (fall) of the market being greater (less) than either 20% of 25% in order to qualify for these names. In many ways the more general definition would seem to be closer to that used to describe contractions and expansions in the business literature while the press definition, would be analogous to booms and busts in the real economy. The paper uses the initial definition but seems to coincidentally follow the second. 
+
+The papers definition implies that the stock market has gone from a bull to a bear state if prices have declined for a substantial period since their previous (local) peak. This definition does not rule out sequences of negative price movements in stock prices during a bull market or vice versa.
+
+It is necessary to describe accurately the turning points in the series. The Bry and Boschan (BB) (1971) papers method is described below.
+
+1. Select a criterion for deciding the location of potential peaks and troughs
+   i) Find points which are higher or lower than a window of surrounding points.
+
+2. Durations between these points are measured and a set of censoring rules is then adopted which restricts the minimal lenghts of any phase as well as those of complete cycles.
+   i) B&B use 6 months but P&S use 8 months as the time window in determining the intial location of turning points
+   ii) The minimum amount of time that must have elapsed to be able to identify a stage of the process is set at 4 months
+
+3. Set the overall cycle of bull and bear time frame
+   i) B&B set this as 15 months while P&S set it at 16 months allowing for symmetircal 8 month periods
+
+4. Finally, the minimum period can be disregarded if the stock price falls by 20% in a single month.
+This is the basic pattern seeking that can be used to highlight any movement pattern
+
+The paper states that due to the montly data input they will not smooth the series like is used in B&B and they do not remove outliers.
+
+### From the end of the paper procedure for programmed determination of turning points
+
+1. Determination of initial turning points in raw data.
+   i) Determination of initial turning points in raw data by choosing local peaks (troughs) as occurring when they are the highest (lowest) values in a window eight months on either side of the date.
+   ii) Enforcement of alternation of turns by selecting highest of multiple peaks (or lowest of multiple troughs).
+   
+2. Censoring operations (ensure alternation after each)
+   i) Elimination of turns within 6 months of beginning and end of series
+   ii) Elimination of peaks (or troughs) at both ends of series which are lower or higher)
+   iii) Elimination of cycles whose duration is less than 16 months.
+   iiii) Elimination of phases whose duration is less than 4 months (unless fall/rise exceeds 20%).
+
+3. Statement of final turning points
+
+# Retrospective Identification of Bull and Bear Markets: A new, but simple Algorithim
+By Marcel Hoepfner
+
+accessible at https://pub.uni-bielefeld.de/download/2916849/2916852/wpaper_01_2018.pdf
+
+## Introduction
+Describes the problem of wishing to analyse correlation between assets but wishing to do so in different market periods. As such it is necessary to identify these seperate subperiods. The paper defines bull and bear phases as solely increasing and decreasing stock prices.
+
+The algorithim is called the IBB algorithim. It is then applied to time series of different stock market indicies, but is said to be applicable to individual stock time series. As well as this it can be applied to daily weekly or montly closing prices.
+
+The algorithim is inspired by the Pagan and Sossounov paper (2003), i.e. the detection of local maxima and minima. Existing approaches state a market phase has to exist for a certain amount of time before it can be called such. The paper calls this an exogenous factor and is such changed to and endogenous factor in the IBB algorithim.
+
+The paper criticises the work of Pagan and Sossounov for their arbitrary selection of 4 months and 16 months. As such, Hoepfner continues to explain the choice of whether the reader is looking at short medium or long term phases should be incorporated in the model. Whether they are looking at shorter or longer effects.
+
+Another point made is the inclusion of sharp increases or decreases being allowed for inclusion as a market phase. Mentioned again is the Pagan and Sossounov paper which allows the inclusion of a phase if stock prices increase or decrease more than 20% in under 4 months. Again this is criticised as arbitrary as the paper mentions both a 20% change and a 25% change. Other papers differ on the amount as well, ranging from a change of 10% up to the figures mentioned. To avoid arbitrariness the IBB algorithim does not postulate a certain increase or decrease of stock prices. 
+
+The paper hails itself as much simpler construction with less constraints. Hence, it is easier to work with and implement.
+
+## Method
+Initial step is to locate maxima and minima cites a number of papers that link this to the begining of bear and bull markets. The only definition used is that bull markets are generally increasing prices and bear are generally decreasing. 
+
+Each begining of a market phase represents the end of the contrary market phase. Because each local extremum is at the same time both a beginning and an end of a market phase it is taken as both. To detect the extrema a window is set symmetrically around each data point *i* with *i* being a real number. within a window the local maximum and the local minimum is determined. The window size is variable due to the purpose of investigation. The size should entirely depend on the size of periods you are looking for. 
+
+> By choosing larger window sizes less local extrema and hence less changes between bull and bear markets can be detected. In the present paper longer subperiods are requested and therefore larger window sizes are chosen.
+
+Larger window sizes lead to higher robustness of results. To minimise the arbitrariness of choosing window size, the window size with the highest possible robustness against changes of this size has to be taken.
+
+### Choosing Window size
+Total window size - measured in trading days or data points, respectively - is called F and has to be an odd number of data points due to its symmetry.$f$ with $f:=(F-1)/2$ denominates the number of data points due to its symmetry and afterwards the data point, which represents the symmetrical center around which the window is set. 
+
+### Determining local maxima and minima
+This is the first step of the IBB algorithim. $N$ denotes the total number of observations i or rather stock prices $S_{i}$:
+$$ Max(i) := max_{jE[max[1;i-f], ... , min[i+f,N]]} S_{j} , 1 \leq i \leq N $$
+$$ Min(i) := min_{jE[max[1;i-f], ... , min[i+f,N]]} S_{j} , 1 \leq i \leq N $$
+As the window size is set by F the start and the end of each window is symmetrically spaced around the point i. Meaning the extrema of each point are at i-f, and i+f respectively. 
+
+### Counting consecutive windows
+The function $L_{i}^{Max}$ $L_{i}^{Min}$ counts the number of consecutive windows for which the same local maxima and minima are identifies. It is a counting algorithim and starts from one and adds one for each consecutive window with the same value. If two consecutive windows exhibit different maxima or minima, the counting algorithim resets and starts counting from 1 again. Once the counting algorithim reaches $F$ - meaning $F$ counsecutive windows exhibit the same maxima (minima) - the data point which is located $f$ data points before the data point for which the counting algorithim reaches $F$ represents the identified maximum (minimum). This is because the data point is just the symmetrical centre of the window for which all $f$ preceeding and all $f$ following data points exhibit one and the same maxima (minima) value.
+
+
+
+
+# Questions
+### Paper Questions
+* Why does the Pagan and Sossounov not smooth data or remove outliers while the paper they reference Bry and Boschan (business cycle) does even though both use monthly data?
+* should we use monthly or daily and should we clean the data as the Hoepfner paper says do not
+* getting the algebra confused in equation does the E just mean real number? 
+
+### Model Questions
+* I am a little confused but do we pick the data or do you have your own data?
+* for my counting algorithim I used Hoefner  check F-1
+* for set series I have it that hopefully it converts whatever is input to a np.array does that make sense
+* also what else should set series be for?
+* better solution for identifying points as mine does not allow for multiple values
+
+
+### Additional Questions
+* how do you hide code cells for either output or input in jupyter?
+
+
+
+
+
