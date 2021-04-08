@@ -1,0 +1,655 @@
+---
+title: "FTSE Returns' Predictive Accuracy in Monthly Data"
+author: "Peter McClintock"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+bibliograph: ["refs.bib"]
+output:
+   bookdown::pdf_document2:
+     toc: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) 
+library(tsfe)
+#forecasting
+library(fpp2)
+#For pdf knit
+library(bookdown)
+#for graphic outputs
+library(tidyquant)
+library(kableExtra)
+library(DT)
+library(ggpubr)
+#for regression
+library(rstanarm)
+#for differencing test
+library(urca)
+
+```
+
+
+# Introduction
+Predicting stock prices has been and likely will be all but an elusive goal for analysts and researchers. Even with great advances in computing power, and statistical methods the goal of perfect accuracy in predicting stock prices is still unobtainable. 
+
+A main reason for this is quoted from Timmerman (2008), “creative self-destruction”, which refers to the process of model identification, and subsequently adoption by investors. As soon as a more profitable model comes along the benefit of the gains achieved from this model, will eventually be eroded as the information becomes incorporated into price changes. As a result, over time a new model will lose its performance power in predicting price changes.
+
+Problems in price estimation come from factors relating to the type of stock as well. Avramov, Chordia and Goyal (2006) find that a stocks liquidity and demand have an impact on the level of price reversals observed. Stocks with low liquidity and high volume tend to have the largest price reversals. As such depending on external factors such as investor interest, larger periods of volatility may be observed in returns making prediction harder.
+
+In identifying that predictions will always have a margin of error, this paper attempts to answer the question, is prediction accuracy less accurate in shorter time frames? 
+
+The methodology section breaks down the data used, and the included models explained. The results section provides the final findings and insights into our findings. This is finished with a discussion on the results and prospects for the future.
+
+
+# Methodology
+## Data
+The data for this report comes from the FTSE index for the period 1969 - 2019. The data used has been saved and is publicly available via the GitHub link in the appendix. The focus of this paper is on predicting index returns and as such we use the monthly value of the FTSE index with multiple different periods of analysis. To train the models data from 1969/01/01 – 1988/12/12 is used. The total data used for testing is from 1989/01/01 – 2018/12/12. While there is one complete testing set, this is also divided into parts and analysed so as to answer our initial question of does accuracy depend on the time frame.  For each the logarithmic return of the FTSE index is calculated. Summary statistics of the data sets are shown in Table 1. below
+
+
+
+```{r acquireData, include=FALSE}
+
+Mdata <- read.csv("https://raw.githubusercontent.com/Petermcc042/MastersYearData/main/indices_m.csv")
+Ddata <- read.csv("https://raw.githubusercontent.com/Petermcc042/MastersYearData/main/indices_d.csv")
+
+colnames(Mdata) <- c("Date", "ftse", "russel", "world", "china", "ireland")
+colnames(Ddata) <- c("Date", "china", "dax", "dowjones", "ftse", "ireland", "nikkei", "russel", "sp500", "world")
+
+
+
+as_tibble(Ddata)
+as_tibble(Mdata)
+Ddata <- Ddata %>%
+        mutate(Date=as.Date(Date))
+Mdata <- Mdata %>%
+        mutate(Date=as.Date(Date))
+
+plot(Mdata$ftse)
+
+Mdata <- Mdata %>% map_df(rev)
+
+plot(Mdata$ftse)
+
+```
+
+```{r logreturns, include=FALSE}
+
+Mdata <- Mdata[Mdata$Date >= "1969-01-01" & Mdata$Date <= "2019-01-01",]
+
+Mdata$ftse.lr = c(NA, 100*diff(log(Mdata$ftse)))
+
+Mdata <- Mdata[-1,]
+
+plot(Mdata$ftse)
+
+```
+
+```{r partition, include=FALSE}
+#10 year data sets
+Mtrain <- Mdata[Mdata$Date >= "1969-01-01" & Mdata$Date <= "1988-12-01",]
+M89.18 <- Mdata[Mdata$Date >= "1989-01-01" & Mdata$Date <= "2018-12-01",]
+M89.98 <- Mdata[Mdata$Date >= "1989-01-01" & Mdata$Date <= "1998-12-01",]
+M99.08 <- Mdata[Mdata$Date >= "1999-01-01" & Mdata$Date <= "2008-12-01",]
+M09.18 <- Mdata[Mdata$Date >= "2009-01-01" & Mdata$Date <= "2018-12-01",]
+
+#one year data sets
+M89 <- Mdata[Mdata$Date >= "1989-01-01" & Mdata$Date <= "1989-12-01",]
+M99 <- Mdata[Mdata$Date >= "1999-01-01" & Mdata$Date <= "1999-12-01",]
+M09 <- Mdata[Mdata$Date >= "2009-01-01" & Mdata$Date <= "2009-12-01",]
+M18 <- Mdata[Mdata$Date >= "2018-01-01" & Mdata$Date <= "2018-12-01",]
+
+#half year data sets
+M892 <- Mdata[Mdata$Date >= "1989-01-01" & Mdata$Date <= "1989-06-01",]
+M992 <- Mdata[Mdata$Date >= "1999-01-01" & Mdata$Date <= "1999-06-01",]
+M092 <- Mdata[Mdata$Date >= "2009-01-01" & Mdata$Date <= "2009-06-01",]
+M182 <- Mdata[Mdata$Date >= "2018-01-01" & Mdata$Date <= "2018-06-01",]
+
+```
+
+```{r summaryTable, echo=FALSE}
+
+#observations
+obsValues <- c(NROW(Mtrain$ftse.lr), NROW(M89.18$ftse.lr), NROW(M89.98$ftse.lr), NROW(M99.08$ftse.lr), NROW(M09.18$ftse.lr),
+                                 NROW(M89$ftse.lr), NROW(M99$ftse.lr), NROW(M09$ftse.lr), NROW(M18$ftse.lr),
+                                 NROW(M892$ftse.lr), NROW(M992$ftse.lr), NROW(M092$ftse.lr), NROW(M182$ftse.lr))
+
+#mean values
+meanValues <- c(mean(Mtrain$ftse.lr), mean(M89.18$ftse.lr), mean(M89.98$ftse.lr), mean(M99.08$ftse.lr), mean(M09.18$ftse.lr),
+                                 mean(M89$ftse.lr), mean(M99$ftse.lr), mean(M09$ftse.lr), mean(M18$ftse.lr),
+                                 mean(M892$ftse.lr), mean(M992$ftse.lr), mean(M092$ftse.lr), mean(M182$ftse.lr))
+meanValues <- round(meanValues, 2)
+
+#max values
+maxValues<- c(max(Mtrain$ftse.lr), max(M89.18$ftse.lr), max(M89.98$ftse.lr), max(M99.08$ftse.lr), max(M09.18$ftse.lr),
+                                 max(M89$ftse.lr), max(M99$ftse.lr), max(M09$ftse.lr), max(M18$ftse.lr),
+                                 max(M892$ftse.lr), max(M992$ftse.lr), max(M092$ftse.lr), max(M182$ftse.lr))
+maxValues <- round(maxValues, 2)
+
+#min values
+minValues<- c(min(Mtrain$ftse.lr), min(M89.18$ftse.lr), min(M89.98$ftse.lr), min(M99.08$ftse.lr), min(M09.18$ftse.lr),
+                                 min(M89$ftse.lr), min(M99$ftse.lr), min(M09$ftse.lr), min(M18$ftse.lr),
+                                 min(M892$ftse.lr), min(M992$ftse.lr), min(M092$ftse.lr), min(M182$ftse.lr))
+minValues <- round(minValues, 2)
+
+#sd values
+sdValues<- c(sd(Mtrain$ftse.lr), sd(M89.18$ftse.lr), sd(M89.98$ftse.lr), sd(M99.08$ftse.lr), sd(M09.18$ftse.lr),
+                                 sd(M89$ftse.lr), sd(M99$ftse.lr), sd(M09$ftse.lr), sd(M18$ftse.lr),
+                                 sd(M892$ftse.lr), sd(M992$ftse.lr), sd(M092$ftse.lr), sd(M182$ftse.lr))
+sdValues <- round(sdValues, 2)
+
+
+statsTable <- data.frame( Period = c("Training: 1969-1988", "Test: 1989-2018", "1989-1998", "1999-2008", "2009-2018",
+                                 "1989", "1999", "2009", "2018",
+                                 "1989", "1999", "2009", "2018"),
+                        Obs = obsValues,
+                        Mean = meanValues,
+                        Max = maxValues,
+                        Min = minValues,
+                        StandardDeviation = sdValues)
+
+statsTable %>% kbl(caption = "Summary Statistics", booktabs = T) %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  pack_rows("Training and Test", 1, 2) %>%
+  pack_rows("10 Year", 3, 5) %>%
+  pack_rows("1 Year", 6, 9) %>%
+  pack_rows("Half Year", 10, 13) %>%
+  footnote(symbol = "Half year data is the first six months of the year")
+
+
+```
+
+The average for both the training and test set are similar, however, as the test sets are divided into smaller time frames, larger variation appears. For example, during the turbulent times of the stock market crash in 2009 a larger mean is observed, while in 2018 it is negative. “Anomaly” results have not been excluded following from the data as they are believed to be more likely a systematic pattern (Gelman, Hill, & Vehtari, 2020). As such we see a large range in our training data, but this is typically not the case in most of the testing sets. Finally, a key result discussed in the results section is the standard deviation. The impact of larger amounts of volatility in a series may have varying effects on the models included. The main year of note is 2009 understandably, and this should highlight models’ issues to deal with high volatility.
+
+log returns are an easy choice for analysis over the standard FTSE series for two main reasons. Firstly, to help with reducing overall volatility of the series. Secondly, through differencing and taking the log, stationarity is introduced in the data. Stationarity meaning the log returns should not depend on time (Hyndman & Athanasopoulos 2018).
+
+From an analysis into the log returns we find that while the even after changing the data to returns and taking the log, the data still does not take on perfect normality. The graph below shows the plotted data with a normal distribution superimposed on top. 
+
+
+```{r normality, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+par(mar = c(4, 4, .1, .1))
+
+Mtrain %>%
+  ggplot(aes(x=ftse.lr)) +
+  geom_density() +
+  stat_function(
+    fun=dnorm,
+    args=list(mean(Mtrain$ftse.lr),
+              sd=sd(Mtrain$ftse.lr)),
+    lwd=2,
+    col="red") +
+  labs(subtitle="Figure 1. FTSE monthly log returns") +
+  theme_tq()
+
+
+
+```
+
+```{r normstatsTable, echo=FALSE, results="hide", message=FALSE, warning=FALSE}
+
+t<-table.Stats(Mtrain$ftse.lr)
+t1<-t[c("Observations","NAs","Arithmetic Mean","Skewness","Kurtosis"),]
+(t1)
+
+```
+
+
+Figure 1. highlights the lack of normality showing that the log returns are leptokurtic. Checking the log returns for normality we achieve a skewness of 0.29 but a large kurtosis of 7.7. The Jarque-bera test scores show that we reject the null that the monthly log returns are normally distributed. While the residuals for the models do improve upon normality, they still fail the Jarque-bera test. As such the analysis is continued but this does place a caveat on the predicted results. The residuals fail to reject the Ljung-box test and as such are assumed to be a good fit of the data. Finally the data is checked using the KPSS test (Kwiatkowski, Phillips, Schmidt, & Shin, 1992). The test statistic is much lower that the 1% critical value and as such the data is assumed to be stationary.
+
+
+```{r diffseasonal, results='hide', echo=FALSE}
+
+Mtrain$ftse.lr %>% ur.kpss() %>% summary()
+#p value is 0.1 likely that are data is stationary and does not follow a trend
+
+ndiffs(Mtrain$ftse)
+ndiffs(Mtrain$ftse.lr)
+
+#returns 1 for ftse and 0 for log returns
+
+```
+
+
+
+## Models
+
+### Model 1
+Following from Fama (1970) the first model implements a martingale process whereby the expected return, is predicted using the return from the prior observation. Therefore the forecast value is given by. 
+$$ r_{t+1} = r_{t} $$
+This follows weak form theory in that stock prices are a random process making it impossible to find price patterns based on previous data. As such all past information is encapsulated in today’s price. This therefore is used to predict the next observation but is included as more of a base estimate to compare with the other models.
+
+
+```{r model1, echo=FALSE}
+
+calcRMSE.M1 <- function(x){
+  x$M1.predict <- c(x$ftse.lr[-1],0)
+  x$M1.diff <- (x$M1.predict - x$ftse.lr)^2
+  M1.RMSE.x <- round(sqrt(sum(x$M1.diff)/length(x$M1.diff)), 3)
+  return(M1.RMSE.x)
+}
+
+```
+
+
+
+### Model 2
+Timmerman (2008) finds one of the best models for prediction is a simple prevailing average, as such similar results are expected.
+
+$$  r_{t+1} = t^{-1} \sum_{ \tau=1}^{t} r_{\tau} $$
+
+The above shows the prediction formula.
+
+
+
+```{r model2,echo=FALSE}
+
+calcRMSE.M2 <- function(x){
+  x$M2.predict <- cumsum(x$ftse.lr) / seq_along(x$ftse.lr)
+  x$M2.diff <- (x$M2.predict - x$ftse.lr)^2
+  M2.RMSE.x <- round(sqrt(sum(x$M2.diff)/length(x$M2.diff)), 3)
+  return(M2.RMSE.x)
+}
+
+```
+
+```{r logvsbog, fig.show='hide', results='hide', error=FALSE, echo=FALSE}
+
+ggtsdisplay(Mtrain$ftse.lr) 
+ggtsdisplay(Mtrain$ftse)
+
+```
+
+### Model 3
+The third model is an auto regressive (AR) model which follows below.
+$$  r_{t+1} = \beta_{0} + \sum_{j=1}^{k} \beta_{j}r_{t+1-j} + \epsilon_{t+1} $$
+For this paper $k$ is chosen to minimise the corrected Akaike Information Criterion (AICc). For the data eight AR models with an increasing number of lags were tested and the model which produced the lowest AIC was an AR(5) model which subsequently was used.
+
+
+```{r, fig.show='hide', results='hide', echo=FALSE}
+
+fit1 <- Arima(Mtrain$ftse.lr, order=c(1,0,0))
+fit2 <- Arima(Mtrain$ftse.lr, order=c(2,0,0))
+fit3 <- Arima(Mtrain$ftse.lr, order=c(3,0,0))
+fit4 <- Arima(Mtrain$ftse.lr, order=c(4,0,0))
+fit5 <- Arima(Mtrain$ftse.lr, order=c(5,0,0))
+fit6 <- Arima(Mtrain$ftse.lr, order=c(6,0,0))
+fit7 <- Arima(Mtrain$ftse.lr, order=c(7,0,0))
+fit8 <- Arima(Mtrain$ftse.lr, order=c(8,0,0))
+
+best <- which.min(c(
+  fit1$aicc,
+  fit2$aicc,
+  fit3$aicc,
+  fit4$aicc,
+  fit5$aicc,
+  fit6$aicc,
+  fit7$aicc,
+  fit8$aicc))
+(best)
+
+#best returns 5 for training data
+
+```
+  
+
+```{r model3, include=FALSE}
+
+M3 <- Arima(Mtrain$ftse.lr, order=c(5,0,0))
+
+calcRMSE.M3 <- function(x){
+  M3.fit <- Arima(x$ftse.lr, model=M3)
+  x$M3.predict <- M3.fit$fitted
+  x$M3.diff <- (x$M3.predict - x$ftse.lr)^2
+  M3.RMSE.x <- round(sqrt(sum(x$M3.diff)/length(x$M3.diff)), 3)
+  return(M3.RMSE.x)
+}
+
+M3 %>% forecast(h=20) %>% autoplot
+
+```
+
+
+```{r residtestm3, fig.show='hide', results='hide', echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+
+checkresiduals(M3)
+
+ggqqplot(Mtrain$ftse.lr)
+ggqqplot(M3$residuals)
+
+m3resid <- c(M3$residuals)
+moments::jarque.test(m3resid)
+``` 
+
+
+```{r plotM3circle, fig.show='hide', results='hide', error=FALSE, echo=FALSE}
+
+autoplot(M3)
+
+```
+
+### Model 4
+An extension of the AR model is auto regressive integrated moving average (ARIMA) models. The general ARIMA model is formed by.
+
+$$  r_{t+1} = \beta_{0} + \sum_{j=1}^{k} \beta_{j}r_{t+1-j} +\sum_{i=1}^{m} \beta_{i}\epsilon_{t+1-i} +  \epsilon_{t+1} $$
+
+Where the values of $j$ and $i$ are again chosen to minimise AICc. Thirty-six different ARIMA models were tested, each with $d$ = 0, as the data had already been differenced. The model chosen was Arima(4,0,4). As mentioned above the ACF and PACF both show significant spikes at lag 5, however, as the model is being tested with lowest AICc we stick with $p$ and $q$ equal to 4.
+
+
+
+```{r multiplearimamodel, fig.show='hide', results='hide', echo=FALSE}
+fit100 <- Arima(Mtrain$ftse.lr, order=c(1,0,0))
+fit001 <- Arima(Mtrain$ftse.lr, order=c(0,0,1))
+fit002 <- Arima(Mtrain$ftse.lr, order=c(0,0,2))
+fit003 <- Arima(Mtrain$ftse.lr, order=c(0,0,3))
+fit004 <- Arima(Mtrain$ftse.lr, order=c(0,0,4))
+fit005 <- Arima(Mtrain$ftse.lr, order=c(0,0,5))
+fit100 <- Arima(Mtrain$ftse.lr, order=c(1,0,0))
+fit101 <- Arima(Mtrain$ftse.lr, order=c(1,0,1))
+fit102 <- Arima(Mtrain$ftse.lr, order=c(1,0,2))
+fit103 <- Arima(Mtrain$ftse.lr, order=c(1,0,3))
+fit104 <- Arima(Mtrain$ftse.lr, order=c(1,0,4))
+fit105 <- Arima(Mtrain$ftse.lr, order=c(1,0,5))
+fit200 <- Arima(Mtrain$ftse.lr, order=c(2,0,0))
+fit201 <- Arima(Mtrain$ftse.lr, order=c(2,0,1))
+fit202 <- Arima(Mtrain$ftse.lr, order=c(2,0,2))
+fit203 <- Arima(Mtrain$ftse.lr, order=c(2,0,3))
+fit204 <- Arima(Mtrain$ftse.lr, order=c(2,0,4))
+fit205 <- Arima(Mtrain$ftse.lr, order=c(2,0,5))
+fit300 <- Arima(Mtrain$ftse.lr, order=c(3,0,0))
+fit301 <- Arima(Mtrain$ftse.lr, order=c(3,0,1))
+fit302 <- Arima(Mtrain$ftse.lr, order=c(3,0,2))
+fit303 <- Arima(Mtrain$ftse.lr, order=c(3,0,3))
+fit304 <- Arima(Mtrain$ftse.lr, order=c(3,0,4))
+fit305 <- Arima(Mtrain$ftse.lr, order=c(3,0,5))
+fit400 <- Arima(Mtrain$ftse.lr, order=c(4,0,0))
+fit401 <- Arima(Mtrain$ftse.lr, order=c(4,0,1))
+fit402 <- Arima(Mtrain$ftse.lr, order=c(4,0,2))
+fit403 <- Arima(Mtrain$ftse.lr, order=c(4,0,3))
+fit404 <- Arima(Mtrain$ftse.lr, order=c(4,0,4))
+fit405 <- Arima(Mtrain$ftse.lr, order=c(4,0,5))
+fit500 <- Arima(Mtrain$ftse.lr, order=c(5,0,0))
+fit501 <- Arima(Mtrain$ftse.lr, order=c(5,0,1))
+fit502 <- Arima(Mtrain$ftse.lr, order=c(5,0,2))
+fit503 <- Arima(Mtrain$ftse.lr, order=c(5,0,3))
+fit504 <- Arima(Mtrain$ftse.lr, order=c(5,0,4))
+fit505 <- Arima(Mtrain$ftse.lr, order=c(5,0,5))
+```
+
+```{r bestarima, fig.show='hide', results='hide', echo=FALSE}
+best <- which.min(c(
+  fit100$aicc,
+  fit001$aicc,
+  fit002$aicc,
+  fit003$aicc,
+  fit004$aicc,
+  fit005$aicc,
+  fit100$aicc,
+  fit101$aicc,
+  fit102$aicc,
+  fit103$aicc,
+  fit104$aicc,
+  fit105$aicc,
+  fit200$aicc,
+  fit201$aicc,
+  fit202$aicc,
+  fit203$aicc,
+  fit204$aicc,
+  fit205$aicc,
+  fit300$aicc,
+  fit301$aicc,
+  fit302$aicc,
+  fit303$aicc,
+  fit304$aicc,
+  fit305$aicc,
+  fit400$aicc,
+  fit401$aicc,
+  fit402$aicc,
+  fit403$aicc,
+  fit404$aicc,
+  fit405$aicc,
+  fit500$aicc,
+  fit501$aicc,
+  fit502$aicc,
+  fit503$aicc,
+  fit504$aicc,
+  fit505$aicc))
+(best)
+
+#returns fit404
+```
+
+```{r model4, echo=FALSE}
+
+M4 = Arima(Mtrain$ftse.lr, order=c(4,0,4))
+
+calcRMSE.M4 <- function(x){
+  M4.test <- Arima(x$ftse.lr, model=M4)
+  x$M4.predict <- M4.test$fitted
+  x$M4.diff <- (x$M4.predict - x$ftse.lr)^2
+  M4.RMSE.x <- round(sqrt(sum(x$M4.diff)/length(x$M4.diff)), 3)
+  return(M4.RMSE.x)
+}
+
+```
+
+```{r residtestM4, fig.show='hide', results='hide', echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+
+checkresiduals(M4)
+
+ggqqplot(Mtrain$ftse.lr)
+ggqqplot(M3$residuals)
+
+m3resid <- c(M3$residuals)
+moments::jarque.test(m3resid)
+
+```
+
+```{r plottingM4circle, fig.show='hide', results='hide', error=FALSE, echo=FALSE}
+
+autoplot(M4)
+
+```
+
+```{r arimaforecastm4, fig.show='hide', results='hide', echo=FALSE}
+
+M4 %>% forecast(h=20) %>% autoplot
+
+```   
+
+### Model 5
+Model 5 is a dampened Holt linear trend model, which for prediction follows the equation below.
+
+$$  r_{t+h|t} =\ell_{t} + hb_{t} $$
+
+Whereby where $\ell$ is the estimate of the level of log returns at time $t$, $b_{t}$ is the log returns slope estimate at time $t$ and $h$ is a vector of dampening terms. The Holt model is expected to produce slightly more consistent results with the dampened results, especially over the longer time estimates. The dampening is to prevent a linear result becoming unrealistic.
+
+
+```{r holtlineartrend, fig.show='hide', results='hide', echo=FALSE }
+
+M5 <- holt(Mtrain$ftse.lr, damped = TRUE,  h=24, PI=FALSE)
+M5 %>% autoplot()
+
+calcRMSE.M5 <- function(x){
+  M5.test <- holt(x$ftse.lr, model=M5)
+  x$M5.predict <- M5.test$fitted
+  x$M5.diff <- (x$M5.predict - x$ftse.lr)^2
+  M5.RMSE.x <- round(sqrt(sum(x$M5.diff)/length(x$M5.diff)), 3)
+  return(M5.RMSE.x)
+}
+
+```
+
+
+
+### Model 6
+The final Model is a simple average of each prediction result from models two to five.
+
+
+```{r averageModel, fig.show='hide', results='hide', echo=FALSE}
+
+calcRMSE.M6 <- function(x){
+  x$M2.predict <- cumsum(x$ftse.lr) / seq_along(x$ftse.lr)
+  
+  M3.fit <- Arima(x$ftse.lr, model=M3)
+  x$M3.predict <- M3.fit$fitted
+  
+  M4.test <- Arima(x$ftse.lr, model=M4)
+  x$M4.predict <- M4.test$fitted
+  
+  M5.test <- holt(x$ftse.lr, model=M5)
+  x$M5.predict <- M5.test$fitted
+  
+  x$M6.predict <- mean(c(x$M2.predict, x$M3.predict, x$M4.predict, x$M5.predict))
+  x$M6.diff <- (x$M6.predict - x$ftse.lr)^2
+  M6.RMSE.x <- round(sqrt(sum(x$M6.diff)/length(x$M6.diff)), 3)
+  return(M6.RMSE.x)
+}
+
+```
+
+```{r normtestftselr, fig.show='hide', results='hide', echo=FALSE}
+
+moments::jarque.test(Mtrain$ftse.lr)
+
+```
+
+# Results
+
+After creating predicted results for each of the models, the root mean squared error is calculated in keeping with Timmerman (2008). The output of this is shown in Table 2. Below.
+
+```{r resultstable, echo=FALSE}
+
+mseTable <- data.frame( Period = c("Training 69-88", "1989-2018", "1989-1998", "1999-2008", "2009-2018",
+                                 "1989", "1999", "2009", "2018",
+                                 "1989", "1999", "2009", "2018") ,
+                        Martingale = c(calcRMSE.M1(Mtrain), calcRMSE.M1(M89.18), calcRMSE.M1(M89.98), calcRMSE.M1(M99.08), calcRMSE.M1(M09.18),
+                               calcRMSE.M1(M89), calcRMSE.M1(M99), calcRMSE.M1(M09), calcRMSE.M1(M18),
+                               calcRMSE.M1(M892), calcRMSE.M1(M992), calcRMSE.M1(M092), calcRMSE.M1(M182)),
+                        PrevailingMean = c(calcRMSE.M2(Mtrain), calcRMSE.M2(M89.18), calcRMSE.M2(M89.98), calcRMSE.M2(M99.08), calcRMSE.M2(M09.18),
+                                           calcRMSE.M2(M89), calcRMSE.M2(M99), calcRMSE.M2(M09), calcRMSE.M2(M18),
+                                           calcRMSE.M2(M892), calcRMSE.M2(M992), calcRMSE.M2(M092), calcRMSE.M2(M182)),
+                        Autoregressive = c(calcRMSE.M3(Mtrain), calcRMSE.M3(M89.18), calcRMSE.M3(M89.98), calcRMSE.M3(M99.08), calcRMSE.M3(M09.18),
+                                           calcRMSE.M3(M89), calcRMSE.M3(M99), calcRMSE.M3(M09), calcRMSE.M3(M18),
+                                           calcRMSE.M3(M892), calcRMSE.M3(M992), calcRMSE.M3(M092), calcRMSE.M3(M182)),
+                        ARIMA = c(calcRMSE.M4(Mtrain), calcRMSE.M4(M89.18), calcRMSE.M4(M89.98), calcRMSE.M4(M99.08), calcRMSE.M4(M09.18),
+                                           calcRMSE.M4(M89), calcRMSE.M4(M99), calcRMSE.M4(M09), calcRMSE.M4(M18),
+                                           calcRMSE.M4(M892), calcRMSE.M4(M992), calcRMSE.M4(M092), calcRMSE.M4(M182)),
+                        Holt = c(calcRMSE.M5(Mtrain), calcRMSE.M5(M89.18), calcRMSE.M5(M89.98), calcRMSE.M5(M99.08), calcRMSE.M5(M09.18),
+                                           calcRMSE.M5(M89), calcRMSE.M5(M99), calcRMSE.M5(M09), calcRMSE.M5(M18),
+                                           calcRMSE.M5(M892), calcRMSE.M5(M992), calcRMSE.M5(M092), calcRMSE.M5(M182)),
+                        Averaged = c(calcRMSE.M6(Mtrain), calcRMSE.M6(M89.18), calcRMSE.M6(M89.98), calcRMSE.M6(M99.08), calcRMSE.M6(M09.18),
+                                           calcRMSE.M6(M89), calcRMSE.M6(M99), calcRMSE.M6(M09), calcRMSE.M6(M18),
+                                           calcRMSE.M6(M892), calcRMSE.M6(M992), calcRMSE.M6(M092), calcRMSE.M6(M182)))
+
+mseTable %>% kbl(caption = "Results", booktabs = T) %>%
+  kable_styling(latex_options = c("striped", "hold_position")) %>%
+  add_header_above(c(" ", "Root Mean Squared Error" = 6), bold = F, italic = T) %>%
+  pack_rows("Training and Test", 1, 2) %>%
+  pack_rows("10 Year", 3, 5) %>%
+  pack_rows("1 Year", 6, 9) %>%
+  pack_rows("Half Year", 10, 13)
+
+
+
+```
+
+## Models
+Table 2. shows each of the 6 models, with the time frame of the data set tested. The training data is included, also with the full test set of 30 years. Each forecast was evaluated using root mean squared error (RMSE).
+
+The initial overview of the RMSE shows both positives and negatives. Clearly some of the models show a good level of precision, but this is balanced with some very poor out of bag results. Four graphs have been included to help explain the results.
+
+The prior value estimate we can see does not perform near as well as the other models and performs particularly worse in the training data, the one-year prediction of 2009 and the half year prediction of 1989 and 2009. As expected, this model performs worst out of the six, likely due to weak form theory not incorporating other factors that may affect price such as in the semi-strong model proposed by Fama (1970). The model we see tends to perform significantly worse in years where there are larger amounts of volatility such as in 2009.
+
+The best model based on RMSE is the prevailing mean which follows the same as in Timmerman (2008). The results show that when predicting using monthly returns there does not seem to be much difference in performance result for the prevailing mean model across any different period. On average results hover around a value of four. This does dip to as low as 2.82 in 1999 but this is due to the short time frame and a consistent value across the 6 months. This is highlighted in figure 2 below. 
+
+The AR model and the ARIMA model have interchanging periods of better accuracy. The AR model performs better over the ten-year period while the ARIMA model performs better over the shorter time frame.  The issue with the ARIMA model is the included MA term causing instability as the predictions pass five to six years. Reducing the MA term in the model does indeed improve RMSE in the ten-year estimates, but the improvement is marginal and there is a consequent increase in RMSE for the shorter-term estimates. The MA part of the ARIMA model and one less included lag term means that predictions over six months to a year are more stable to sharp changes in the FTSE log returns. This is highlighted in Figure 3 which shows the AR model being impacted by high volatility in the returns.
+
+The Holt linear trend while performing better than the AR model or the ARIMA model in longer term forecasts is simply due to the lack of variance around a result of zero primarily. The models use of exponential smoothing and dampening on data does work in its favour in the longer-term forecasts as shown in figure 4. Unfortunately the Holt model does not do a good job of prediction with the small number of observations in the half year periods.
+
+
+```{r dataforfinalgraphs, results='hide', echo=FALSE}
+#data for figure 2
+M992$M2.predict <- cumsum(M992$ftse.lr) / seq_along(M992$ftse.lr)
+M4.test <- Arima(M992$ftse.lr, model=M4)
+M992$M4.predict <- M4.test$fitted
+M5.test <- holt(M992$ftse.lr, model=M4)
+M992$M5.predict <- M5.test$fitted
+
+#data for figure 3
+M99$M2.predict <- cumsum(M99$ftse.lr) / seq_along(M99$ftse.lr)
+M4.test <- Arima(M99$ftse.lr, model=M4)
+M99$M4.predict <- M4.test$fitted
+M3.test <- Arima(M99$ftse.lr, model=M3)
+M99$M3.predict <- M3.test$fitted
+
+#data for figure 4
+M09.18$M2.predict <- cumsum(M09.18$ftse.lr) / seq_along(M09.18$ftse.lr)
+M4.test <- Arima(M09.18$ftse.lr, model=M4)
+M09.18$M4.predict <- M4.test$fitted
+M5.test <- holt(M09.18$ftse.lr, model=M4)
+M09.18$M5.predict <- M5.test$fitted
+
+plotData2 <- data.frame(x=rep(M992$Date, 4), y = c(M992$ftse.lr, M992$M2.predict, M992$M4.predict, M992$M5.predict), variable = c(rep("ftse", 6), rep("Average", 6), rep("Arima", 6), rep("Holt", 6)))
+plotData3 <- data.frame(x=rep(M99$Date, 4), y = c(M99$ftse.lr, M99$M2.predict, M99$M4.predict, M99$M3.predict), variable = c(rep("ftse", 12), rep("Average", 12), rep("Arima", 12), rep("AR", 12)))
+plotData4 <- data.frame(x=rep(M09.18$Date, 4), y = c(M09.18$ftse.lr, M09.18$M2.predict, M09.18$M4.predict, M09.18$M5.predict), variable = c(rep("ftse", 120), rep("Average", 120), rep("Arima", 120), rep("Holt", 120)))
+
+
+```
+
+```{r predictgraphs, figures-side, fig.show="hold", out.width="50%", echo=FALSE}
+par(mar = c(4, 4, .1, .1))
+
+ggplot(data = plotData2, aes(x=x, y=y)) + geom_line(aes(colour=variable)) +
+    labs(x = "", y = "Log Returns", color = "") + 
+  theme_tq() +
+  theme(text = element_text(size = 20)) +
+  labs(subtitle="Figure 3.") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+ggplot(data = plotData3, aes(x=x, y=y)) + geom_line(aes(colour=variable)) +
+    labs(x = "", y = "Log Returns", color = "") + 
+  theme_tq() +
+  theme(text = element_text(size = 20)) +
+  labs(subtitle="Figure 4.") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+ggplot(data = plotData4, aes(x=x, y=y)) + geom_line(aes(colour=variable)) +
+    labs(x = "", y = "Log Returns", color = "") + 
+  theme_tq() +
+  theme(text = element_text(size = 20)) +
+  labs(subtitle="Figure 5.") +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5))
+
+```
+
+
+## Summary
+In answering the initial question, we find that even when reducing monthly data to 6 observations, we do not see a loss in the predictive power of the models, unless there is a year of high volatility. As such it can be said that in the shorter periods analysed models such as the prevailing mean and ARIMA, still maintain their accuracy. For the Holt trend method, it does lose predictive power in shorter time frames and as such should be reserved for longer term estimates.
+
+
+# Discussion
+This paper set out to identify if shorter periods of monthly data reduced predictive accuracy. As explained in the results section, time does affect models such as the ARIMA and Holt models, but only the Holt loses predictive accuracy at shorter periods. As such when it comes to monthly returns the current level of predictive accuracy is unaffected by shorter time periods. 
+
+The conclusion of this paper is tainted by several factors. The lack of normality of the data does mean that our estimates are not optimal. As well as this, estimating models such as Holt’s linear trend over the 6 observations is shown above to give less than optimal results. Finally, the ARIMA model is likely over penalised by using the RMSE over other absolute error terms as the larger deviations from the correct prediction are being squared.
+
+For the future, a deeper dive into daily analysis and even shorter time periods is necessary. The use of monthly observations limits the time frame that is acceptable for prediction. With daily data weekly estimations could be used and still have more observations than our shortest half year periods. As well as this more advanced methods for time series analysis such as neural nets could be implemented.
+
+
+
+# Appendix
+
+Link to csv download for r : https://raw.githubusercontent.com/Petermcc042/MastersYearData/main/indices_m.csv
+
+# Reference
+* Avramov, D., Chordia, T. and Goyal, A., (2006). Liquidity and autocorrelations in individual stock returns. The Journal of finance, 61(5), pp.2365-2394.
+* Gelman, A., Hill, J., & Vehtari, A. (2020). Data and measurement. In Regression and Other Stories (Analytical Methods for Social Research, pp. 21-34). Cambridge: Cambridge University Press
+* Hyndman, R.J., & Athanasopoulos, G. (2018) Forecasting: principles and practice, 2nd edition, OTexts: Melbourne, Australia. OTexts.com/fpp2. Accessed on 03/04/2021
+* Kwiatkowski, D., Phillips, P. C. B., Schmidt, P., & Shin, Y. (1992). Testing the null hypothesis of stationarity against the alternative of a unit root: How sure are we that economic time series have a unit root? Journal of Econometrics, 54(1-3), 159–178. https://doi.org/10.1016/0304-4076(92)90104-Y
+* Malkiel, B.G. and Fama, E.F., (1970). Efficient capital markets: A review of theory and empirical work. The journal of Finance, 25(2), pp.383-417.
+* Timmermann, A., 2008. Elusive return predictability. International Journal of Forecasting, 24(1), pp.1-18.
+
+
+
